@@ -510,6 +510,16 @@ def noteToMidiEvents(
         # add to track events
         eventList.append(dt)
 
+    # add lyrics here
+    if inputM21.lyrics:
+        lyrics_midi_event = midiModule.MidiEvent(track=mt)
+        lyrics_midi_event.type = midiModule.MetaEvents.LYRIC
+        lyric_text = inputM21.lyrics[0].text
+        lyrics_midi_event.data = lyric_text.encode('utf-8')
+        eventList.append(lyrics_midi_event)
+
+
+
     me2 = midiModule.MidiEvent(track=mt)
     me2.type = midiModule.ChannelVoiceMessages.NOTE_OFF
     me2.channel = channel
@@ -1795,6 +1805,7 @@ def getNotesFromEvents(
     notes = []  # store pairs of pairs
     memo = set()   # store already matched note off
     for i, eventTuple in enumerate(events):
+        lyrics_data = None
         if i in memo:
             continue
         unused_t, e = eventTuple
@@ -1804,17 +1815,23 @@ def getNotesFromEvents(
             continue
         match = None
         # environLocal.printDebug(['midiTrackToStream(): isNoteOn', e])
+
+
         for j in range(i + 1, len(events)):
             if j in memo:
                 continue
             unused_tSub, eSub = events[j]
+            if eSub.isNoteLyrics():
+                lyrics_data = eSub
+
+
             if e.matchedNoteOff(eSub):
                 memo.add(j)
                 match = i, j
                 break
         if match is not None:
             i, j = match
-            pairs = (events[i], events[j])
+            pairs = (events[i], events[j], lyrics_data)
             notes.append(pairs)
         else:
             pass
@@ -1967,7 +1984,10 @@ def midiTrackToStream(
 
     # need to build chords and notes
     notes = getNotesFromEvents(events)
+    # notes_with_lyrics = copy.deepcopy(notes)
+    # notes = [note for note in notes]
     metaEvents = getMetaEvents(events)
+
 
     # first create meta events
     for tick, obj in metaEvents:
@@ -1997,7 +2017,7 @@ def midiTrackToStream(
                 i += 1
                 continue
             # look at each note; get on time and event
-            on, off = notes[i]
+            on, off, lyrics = notes[i]
             timeNow, unused_e = on
             tOff, unused_eOff = off
             # environLocal.printDebug(['on, off', on, off, 'i', i, 'len(notes)', len(notes)])
@@ -2010,7 +2030,7 @@ def midiTrackToStream(
             # time, throw into a different voice
             for j in range(i + 1, len(notes)):
                 # look at each on time event
-                onSub, offSub = notes[j]
+                onSub, offSub, lyrics = notes[j]
                 tSub, unused_eSub = onSub
                 tOffSub, unused_eOffSub = offSub
 
@@ -2030,9 +2050,9 @@ def midiTrackToStream(
                         voicesRequired = True
                         continue
                     if not chordSub:  # start a new one
-                        chordSub = [notes[i]]
+                        chordSub = [notes[i][:2]]
                         iGathered.append(i)
-                    chordSub.append(notes[j])
+                    chordSub.append(notes[j][:2])
                     iGathered.append(j)
                     continue  # keep looping through events to see
                     # if we can add more elements to this chord group
@@ -2044,19 +2064,24 @@ def midiTrackToStream(
             if chordSub:
                 # composite.append(chordSub)
                 c = midiEventsToChord(chordSub, ticksPerQuarter)
-                o = notes[i][0][0] / ticksPerQuarter
-                c.editorial.midiTickStart = notes[i][0][0]
+                o = notes[i][:2][0][0] / ticksPerQuarter
+                c.editorial.midiTickStart = notes[i][:2][0][0]
 
                 s.coreInsert(o, c)
                 # iSkip = len(chordSub)  # amount of accumulated chords
                 chordSub = []
             else:  # just append the note, chordSub is empty
                 # composite.append(notes[i])
-                n: note.NotRest = midiEventsToNote(notes[i], ticksPerQuarter)
+                n: note.NotRest = midiEventsToNote(notes[i][:2], ticksPerQuarter)
+                if lyrics:
+                    decoded_data = lyrics.data.decode('utf-8')
+                    n.addLyric(decoded_data)
+
+
                 # the time is the first value in the first pair
                 # need to round, as floating point error is likely
-                o = notes[i][0][0] / ticksPerQuarter
-                n.editorial.midiTickStart = notes[i][0][0]
+                o = notes[i][:2][0][0] / ticksPerQuarter
+                n.editorial.midiTickStart = notes[i][:2][0][0]
 
                 s.coreInsert(o, n)
                 # iSkip = 1

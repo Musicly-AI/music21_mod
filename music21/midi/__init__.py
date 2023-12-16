@@ -1029,6 +1029,12 @@ class MidiEvent(prebase.ProtoM21Object):
             return True
         return False
 
+    def isNoteLyrics(self):
+
+        if self.type == MetaEvents.LYRIC:
+            return True
+        return False
+
     def isNoteOff(self):
         '''
         Return a boolean if this should be interpreted as a note-off message,
